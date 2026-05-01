@@ -61,7 +61,7 @@ def suggest_chart_with_ai(df):
     try:
         sample = df.head(10).to_string()
 
-      prompt = f"""
+        prompt = f"""
 لديك البيانات التالية:
 
 {sample}
@@ -69,18 +69,18 @@ def suggest_chart_with_ai(df):
 اختر أفضل نوع رسم بياني (bar أو pie أو scatter)
 
 القواعد:
-- استخدم bar للبيانات الرقمية (مثل العمر والراتب)
-- استخدم pie للبيانات الفئوية (مثل القسم أو المدينة)
-- استخدم scatter إذا كانت هناك علاقة بين عمودين رقميين (مثل العمر والراتب)
+- استخدم bar للبيانات الرقمية
+- استخدم pie للبيانات الفئوية
+- استخدم scatter إذا كانت هناك علاقة بين عمودين رقميين
 
 ثم أعطني:
-- chart: نوع الرسم (bar أو pie أو scatter)
-- column: العمود الأساسي
-- y: (اختياري) العمود الثاني إذا كان scatter
-- explanation: شرح بسيط بالعربية لماذا اخترت هذا الرسم
-- tip: نصيحة للمستخدم
+- chart
+- column
+- y (اختياري)
+- explanation
+- tip
 
-أعد النتيجة بصيغة JSON فقط بدون أي شرح إضافي.
+أعد النتيجة JSON فقط.
 """
 
         response = client.chat.completions.create(
@@ -93,40 +93,38 @@ def suggest_chart_with_ai(df):
 
         import json
 
-        import json
+        content = response.choices[0].message.content.strip()
 
-content = response.choices[0].message.content.strip()
+        # تنظيف الرد
+        if content.startswith("```"):
+            content = content.replace("```json", "").replace("```", "").strip()
 
-# تنظيف الرد
-if content.startswith("```"):
-    content = content.replace("```json", "").replace("```", "").strip()
-
-try:
-    result = json.loads(content)
-except:
-    result = {
-        "chart": "bar",
-        "column": df.columns[0],
-        "explanation": "تعذر تحليل رد الذكاء الاصطناعي",
-        "tip": "يمكنك اختيار الرسم يدويًا"
-    }
+        try:
+            result = json.loads(content)
+        except:
+            result = {
+                "chart": "bar",
+                "column": df.columns[0],
+                "explanation": "تعذر تحليل رد الذكاء الاصطناعي",
+                "tip": "يمكنك اختيار الرسم يدويًا"
+            }
 
         return {
             "chart": result.get("chart", "bar"),
             "x": result.get("column", None),
+            "y": result.get("y", None),
             "reason": result.get("explanation", ""),
             "tip": result.get("tip", "")
         }
 
     except Exception:
-        # fallback لو فشل AI
         return {
             "chart": "bar",
             "x": df.columns[0],
+            "y": None,
             "reason": "تم اختيار Bar كخيار افتراضي",
             "tip": "يمكنك تجربة أنواع رسوم أخرى"
         }
-
 
 # 📤 رفع وتحليل الملف
 @app.post("/upload")
