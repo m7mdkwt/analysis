@@ -63,19 +63,24 @@ def suggest_chart(df):
 
     suggestion = {
         "chart": "bar",
-        "x": None
+        "x": None,
+        "reason": ""
     }
 
-    # 📊 إذا فيه أعمدة رقمية → Bar
+    # 📊 الأفضل دائمًا Bar للأرقام
     if numeric_cols:
         suggestion["chart"] = "bar"
         suggestion["x"] = numeric_cols[0]
+        suggestion["reason"] = "تم اختيار Bar لأن البيانات رقمية"
 
-    # 🥧 إذا فيه أعمدة نصية فيها تكرار → Pie
+    # 🥧 Pie فقط إذا فيه تكرار حقيقي
     for col in text_cols:
-        if df[col].nunique() < len(df):
+        unique_ratio = df[col].nunique() / len(df)
+
+        if unique_ratio < 0.7:  # فيه تكرار
             suggestion["chart"] = "pie"
             suggestion["x"] = col
+            suggestion["reason"] = f"تم اختيار Pie لأن '{col}' يحتوي على فئات متكررة"
             break
 
     return suggestion
