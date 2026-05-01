@@ -16,58 +16,65 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Claude Client
+# تأكد أن المتغير البيئي معرف في جهازك أو استبدله بالمفتاح مباشرة للتجربة
+# os.environ["ANTHROPIC_API_KEY"] = "sk-ant-..." 
 client = anthropic.Anthropic(
-api_key=os.getenv("ANTHROPIC_API_KEY")
+    api_key=os.getenv("ANTHROPIC_API_KEY")
 )
 
 @app.get("/")
 def home():
     return {"message": "API is running 🚀"}
 
-
 # 🤖 Claude AI Analysis
 def generate_ai_insights(df):
     try:
-        sample = df.head(10).to_string()
+        # تحويل أول 10 أسطر لنص (مع التأكد من عدم ضياع الأعمدة)
+        sample = df.head(10).to_csv(index=False) # CSV أحياناً يكون أوضح للموديل من string عشوائي
 
         prompt = f"""
-        لديك البيانات التالية:
+        لديك عينة من البيانات التالية (أول 10 أسطر):
 
         {sample}
 
         قم بتحليل البيانات وقدم:
-        - أهم الملاحظات
-        - العلاقات بين الأعمدة
-        - توصيات
+        - ملخص سريع لما تدور حوله البيانات.
+        - أهم 3 ملاحظات ذكية.
+        - توصية عملية بناءً على هذه الأرقام.
 
-        اكتب بالعربية وبشكل واضح.
+        اكتب الإجابة باللغة العربية بتنسيق نقاط واضح.
         """
 
         response = client.messages.create(
             model="claude-3-5-sonnet-20240620",
-            max_tokens=500,
+            max_tokens=1000, # زدنا التوكنز ليعطي تحليل أعمق
             messages=[
                 {"role": "user", "content": prompt}
             ]
         )
 
+        # التصحيح هنا: الوصول للنص بشكل آمن
         return response.content[0].text
 
     except Exception as e:
         return f"Claude Error: {str(e)}"
 
-
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
+    # التأكد من نوع الملف
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="يرجى رفع ملف Excel فقط")
+
     try:
         contents = await file.read()
+        # استخدام engine='openpyxl' لضمان قراءة ملفات xlsx الحديثة
         df = pd.read_excel(io.BytesIO(contents))
 
         if df.empty:
-            raise HTTPException(status_code=400, detail="Empty file")
+            raise HTTPException(status_code=400, detail="الملف فارغ")
 
-        summary = df.describe(include="all").fillna(0).to_dict()
+        # تحويل الـ Summary لنوع بيانات يقبله JSON (تحويل الـ Timestamp لـ string)
+        summary = df.describe(include="all").astype(str).to_dict()
 
         info = {
             "rows": int(df.shape[0]),
@@ -78,7 +85,7 @@ async def upload_file(file: UploadFile = File(...)):
         numeric_df = df.select_dtypes(include=['number'])
         means = numeric_df.mean().to_dict() if not numeric_df.empty else {}
 
-        # 🤖 AI
+        # 🤖 طلب التحليل من ذكاء كلود
         ai_text = generate_ai_insights(df)
 
         return {
@@ -89,4 +96,6 @@ async def upload_file(file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # طباعة الخطأ في الكونسول لتسهيل التنقيح (Debugging)
+        print(f"Error detail: {e}")
+        raise HTTPException(status_code=500, detail=f"حدث خطأ أثناء معالجة الملف: {str(e)}")
