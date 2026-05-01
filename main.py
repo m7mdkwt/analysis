@@ -3,32 +3,31 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
 import os
-import anthropic
+from openai import OpenAI
 
 app = FastAPI()
 
-# 🔓 CORS
+# 🔓 CORS (مهم للربط مع الفرونت)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # لاحقًا ضع دومينك
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 🤖 Claude Client
-client = anthropic.Anthropic(
-    api_key=os.getenv("ANTHROPIC_API_KEY")
-)
+# 🤖 OpenAI Client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @app.get("/")
 def home():
     return {"message": "API is running 🚀"}
 
 
-# 🤖 AI تحليل باستخدام Claude
+# 🤖 تحليل AI
 def generate_ai_insights(df):
     try:
+        # نأخذ عينة من البيانات لتقليل التكلفة
         sample = df.head(10).to_string()
 
         prompt = f"""
@@ -39,23 +38,23 @@ def generate_ai_insights(df):
         قم بتحليل البيانات وقدم:
         - أهم الملاحظات
         - العلاقات بين الأعمدة
-        - توصيات
+        - توصيات مفيدة
 
-        اكتب بالعربية وبشكل واضح.
+        اكتب بالعربية وبشكل واضح وبسيط.
         """
 
-        response = client.messages.create(
-            model="claude-3-opus-20240229",
-            max_tokens=500,
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            temperature=0.7
         )
 
-        return response.content[0].text
+        return response.choices[0].message.content
 
     except Exception as e:
-        return f"Claude Error: {str(e)}"
+        return f"OpenAI Error: {str(e)}"
 
 
 # 📤 رفع ملف Excel وتحليله
@@ -66,8 +65,9 @@ async def upload_file(file: UploadFile = File(...)):
         df = pd.read_excel(io.BytesIO(contents))
 
         if df.empty:
-            raise HTTPException(status_code=400, detail="Empty file")
+            raise HTTPException(status_code=400, detail="الملف فارغ")
 
+        # 📊 إحصائيات
         summary = df.describe(include="all").fillna(0).to_dict()
 
         info = {
@@ -76,9 +76,11 @@ async def upload_file(file: UploadFile = File(...)):
             "columns_names": list(df.columns)
         }
 
+        # 🔢 الأعمدة الرقمية
         numeric_df = df.select_dtypes(include=['number'])
         means = numeric_df.mean().to_dict() if not numeric_df.empty else {}
 
+        # 🤖 تحليل AI
         ai_text = generate_ai_insights(df)
 
         return {
