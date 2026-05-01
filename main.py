@@ -44,13 +44,13 @@ def generate_ai_insights(df):
         اكتب بالعربية وبشكل واضح.
         """
 
-response = client.messages.create(
-    model="claude-3-opus-20240229",
-    max_tokens=500,
-    messages=[
-        {"role": "user", "content": prompt}
-    ]
-)
+        response = client.messages.create(
+            model="claude-3-opus-20240229",
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
 
         return response.content[0].text
 
@@ -68,7 +68,6 @@ async def upload_file(file: UploadFile = File(...)):
         if df.empty:
             raise HTTPException(status_code=400, detail="Empty file")
 
-        # 📊 إحصائيات
         summary = df.describe(include="all").fillna(0).to_dict()
 
         info = {
@@ -80,7 +79,6 @@ async def upload_file(file: UploadFile = File(...)):
         numeric_df = df.select_dtypes(include=['number'])
         means = numeric_df.mean().to_dict() if not numeric_df.empty else {}
 
-        # 🤖 AI تحليل
         ai_text = generate_ai_insights(df)
 
         return {
