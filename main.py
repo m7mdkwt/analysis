@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
 import os
-from openai import OpenAI
+import anthropic
 
 app = FastAPI()
 
@@ -16,15 +16,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# OpenAI Client
-client = OpenAI(api_key=os.getenv("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"))
+# Claude Client
+client = anthropic.Anthropic(
+    api_key=os.getenv("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")
+)
 
 @app.get("/")
 def home():
     return {"message": "API is running 🚀"}
 
 
-# 🤖 تحليل AI
+# 🤖 Claude AI Analysis
 def generate_ai_insights(df):
     try:
         sample = df.head(10).to_string()
@@ -34,24 +36,26 @@ def generate_ai_insights(df):
 
         {sample}
 
-        قم بتحليلها وقدم:
+        قم بتحليل البيانات وقدم:
         - أهم الملاحظات
         - العلاقات بين الأعمدة
         - توصيات
 
-        اكتب بالعربية بشكل واضح.
+        اكتب بالعربية وبشكل واضح.
         """
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
+        response = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
         )
 
-        return response.choices[0].message.content
+        return response.content[0].text
 
     except Exception as e:
-        return f"AI Error: {str(e)}"
+        return f"Claude Error: {str(e)}"
 
 
 @app.post("/upload")
