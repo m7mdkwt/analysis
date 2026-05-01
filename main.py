@@ -18,8 +18,7 @@ app.add_middleware(
 
 # Claude Client
 client = anthropic.Anthropic(
-    api_key=os.getenv("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")
-)
+api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 @app.get("/")
 def home():
