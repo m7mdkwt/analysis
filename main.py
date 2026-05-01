@@ -25,22 +25,23 @@ def home():
     return {"message": "API is running 🚀"}
 
 
-# 🤖 تحليل AI
+# 🤖 تحليل AI فقط (بدون فرض رسوم)
 def generate_ai_insights(df):
     try:
         sample = df.head(10).to_string()
 
         prompt = f"""
-        لديك البيانات التالية:
+لديك البيانات التالية:
 
-        {sample}
+{sample}
 
-        المطلوب:
-        - ملاحظات مختصرة
-        - توصية واحدة
+قم بتحليلها بشكل بسيط:
+- أهم ملاحظة
+- علاقة محتملة بين عمودين
+- توصية واحدة
 
-        اكتب بالعربية بشكل بسيط.
-        """
+اكتب بالعربية بشكل مختصر.
+"""
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -56,83 +57,13 @@ def generate_ai_insights(df):
         return f"AI Error: {str(e)}"
 
 
-# 🤖 اقتراح نوع الرسم
-def suggest_chart_with_ai(df):
-    try:
-        sample = df.head(10).to_string()
-
-        prompt = f"""
-لديك البيانات التالية:
-
-{sample}
-
-اختر أفضل نوع رسم بياني (bar أو pie أو scatter)
-
-القواعد:
-- استخدم bar للبيانات الرقمية
-- استخدم pie للبيانات الفئوية
-- استخدم scatter إذا كانت هناك علاقة بين عمودين رقميين
-
-ثم أعطني:
-- chart
-- column
-- y (اختياري)
-- explanation
-- tip
-
-أعد النتيجة JSON فقط.
-"""
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
-
-        import json
-
-        content = response.choices[0].message.content.strip()
-
-        # تنظيف الرد
-        if content.startswith("```"):
-            content = content.replace("```json", "").replace("```", "").strip()
-
-        try:
-            result = json.loads(content)
-        except:
-            result = {
-                "chart": "bar",
-                "column": df.columns[0],
-                "explanation": "تعذر تحليل رد الذكاء الاصطناعي",
-                "tip": "يمكنك اختيار الرسم يدويًا"
-            }
-
-        return {
-            "chart": result.get("chart", "bar"),
-            "x": result.get("column", None),
-            "y": result.get("y", None),
-            "reason": result.get("explanation", ""),
-            "tip": result.get("tip", "")
-        }
-
-    except Exception:
-        return {
-            "chart": "bar",
-            "x": df.columns[0],
-            "y": None,
-            "reason": "تم اختيار Bar كخيار افتراضي",
-            "tip": "يمكنك تجربة أنواع رسوم أخرى"
-        }
-
 # 📤 رفع وتحليل الملف
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
-        # ❗ تحقق من الحجم (5MB)
+        # ❗ تحقق من الحجم
         if len(contents) > 5_000_000:
             raise HTTPException(status_code=400, detail="حجم الملف كبير")
 
@@ -152,24 +83,23 @@ async def upload_file(file: UploadFile = File(...)):
             "columns_names": list(df.columns)
         }
 
-        # 📊 المتوسطات
-        numeric_df = df.select_dtypes(include=["number"])
-        means = numeric_df.mean().to_dict() if not numeric_df.empty else {}
-
-        # 📊 البيانات الكاملة
+        # 📊 بيانات كاملة (للرسم)
         records = df.to_dict(orient="records")
 
-        # 🤖 AI تحليل
-        ai_text = generate_ai_insights(df)
+        # 📊 أعمدة رقمية (مفيد للواجهة)
+        numeric_columns = df.select_dtypes(include=["number"]).columns.tolist()
 
-        # 🤖 اقتراح الرسم
-        chart_suggestion = suggest_chart_with_ai(df)
+        # 📊 أعمدة نصية
+        categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
+
+        # 🤖 AI تحليل (اختياري)
+        ai_text = generate_ai_insights(df)
 
         return {
             "info": info,
-            "means": means,
             "records": records,
-            "chart_suggestion": chart_suggestion,
+            "numeric_columns": numeric_columns,
+            "categorical_columns": categorical_columns,
             "ai_analysis": ai_text
         }
 
