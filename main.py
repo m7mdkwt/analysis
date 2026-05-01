@@ -57,33 +57,53 @@ def generate_ai_insights(df):
 
 
 # 🤖 اقتراح نوع الرسم
-def suggest_chart(df):
-    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
-    text_cols = df.select_dtypes(include=["object"]).columns.tolist()
+def suggest_chart_with_ai(df):
+    try:
+        sample = df.head(10).to_string()
 
-    suggestion = {
-        "chart": "bar",
-        "x": None,
-        "reason": ""
-    }
+        prompt = f"""
+        لديك البيانات التالية:
 
-    # 📊 الأفضل دائمًا Bar للأرقام
-    if numeric_cols:
-        suggestion["chart"] = "bar"
-        suggestion["x"] = numeric_cols[0]
-        suggestion["reason"] = "تم اختيار Bar لأن البيانات رقمية"
+        {sample}
 
-    # 🥧 Pie فقط إذا فيه تكرار حقيقي
-    for col in text_cols:
-        unique_ratio = df[col].nunique() / len(df)
+        اختر أفضل نوع رسم بياني (bar أو pie)
 
-        if unique_ratio < 0.7:  # فيه تكرار
-            suggestion["chart"] = "pie"
-            suggestion["x"] = col
-            suggestion["reason"] = f"تم اختيار Pie لأن '{col}' يحتوي على فئات متكررة"
-            break
+        ثم أعطني:
+        - chart: نوع الرسم (bar أو pie)
+        - column: أفضل عمود
+        - explanation: شرح بسيط بالعربية لماذا اخترت هذا الرسم
+        - tip: نصيحة للمستخدم
 
-    return suggestion
+        أعد النتيجة بصيغة JSON فقط.
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+
+        import json
+
+        result = json.loads(response.choices[0].message.content)
+
+        return {
+            "chart": result.get("chart", "bar"),
+            "x": result.get("column", None),
+            "reason": result.get("explanation", ""),
+            "tip": result.get("tip", "")
+        }
+
+    except Exception:
+        # fallback لو فشل AI
+        return {
+            "chart": "bar",
+            "x": df.columns[0],
+            "reason": "تم اختيار Bar كخيار افتراضي",
+            "tip": "يمكنك تجربة أنواع رسوم أخرى"
+        }
 
 
 # 📤 رفع وتحليل الملف
