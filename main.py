@@ -44,13 +44,13 @@ def generate_ai_insights(df):
         اكتب بالعربية وبشكل واضح.
         """
 
-        response = client.messages.create(
-            model="claude-3-haiku",
-            max_tokens=500,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
+response = client.messages.create(
+    model="claude-3-opus-20240229",
+    max_tokens=500,
+    messages=[
+        {"role": "user", "content": prompt}
+    ]
+)
 
         return response.content[0].text
 
