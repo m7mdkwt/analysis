@@ -45,7 +45,7 @@ def generate_ai_insights(df):
         """
 
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-3-haiku",
             max_tokens=500,
             messages=[
                 {"role": "user", "content": prompt}
