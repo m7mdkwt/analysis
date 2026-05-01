@@ -7,7 +7,7 @@ from openai import OpenAI
 
 app = FastAPI()
 
-# 🔓 CORS (مهم للربط مع الفرونت)
+# 🔓 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # لاحقًا ضع دومينك
@@ -27,7 +27,6 @@ def home():
 # 🤖 تحليل AI
 def generate_ai_insights(df):
     try:
-        # نأخذ عينة من البيانات لتقليل التكلفة
         sample = df.head(10).to_string()
 
         prompt = f"""
@@ -38,9 +37,9 @@ def generate_ai_insights(df):
         قم بتحليل البيانات وقدم:
         - أهم الملاحظات
         - العلاقات بين الأعمدة
-        - توصيات مفيدة
+        - توصيات
 
-        اكتب بالعربية وبشكل واضح وبسيط.
+        اكتب بالعربية بشكل واضح ومنظم.
         """
 
         response = client.chat.completions.create(
@@ -80,13 +79,17 @@ async def upload_file(file: UploadFile = File(...)):
         numeric_df = df.select_dtypes(include=['number'])
         means = numeric_df.mean().to_dict() if not numeric_df.empty else {}
 
-        # 🤖 تحليل AI
+        # 📊 تحويل البيانات الكاملة للرسم
+        records = df.to_dict(orient="records")
+
+        # 🤖 AI
         ai_text = generate_ai_insights(df)
 
         return {
             "info": info,
             "summary": summary,
             "means": means,
+            "records": records,
             "ai_analysis": ai_text
         }
 
