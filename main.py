@@ -87,7 +87,23 @@ def suggest_chart_with_ai(df):
 
         import json
 
-        result = json.loads(response.choices[0].message.content)
+        import json
+
+content = response.choices[0].message.content.strip()
+
+# تنظيف الرد
+if content.startswith("```"):
+    content = content.replace("```json", "").replace("```", "").strip()
+
+try:
+    result = json.loads(content)
+except:
+    result = {
+        "chart": "bar",
+        "column": df.columns[0],
+        "explanation": "تعذر تحليل رد الذكاء الاصطناعي",
+        "tip": "يمكنك اختيار الرسم يدويًا"
+    }
 
         return {
             "chart": result.get("chart", "bar"),
