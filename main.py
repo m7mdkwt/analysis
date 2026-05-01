@@ -143,7 +143,7 @@ async def upload_file(file: UploadFile = File(...)):
         ai_text = generate_ai_insights(df)
 
         # 🤖 اقتراح الرسم
-        chart_suggestion = suggest_chart(df)
+        chart_suggestion = suggest_chart_with_ai(df)
 
         return {
             "info": info,
