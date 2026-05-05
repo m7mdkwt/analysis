@@ -1,117 +1,122 @@
-import React, { useState } from "react";
-import Plot from "react-plotly.js";
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
+import io
 
-const API_URL = "http://127.0.0.1:8000/upload"; // محلي
+app = FastAPI()
 
-function Upload() {
-  const [file, setFile] = useState(null);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
+# 🔓 CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-  const [chartType, setChartType] = useState("");
-  const [xColumn, setXColumn] = useState("");
-  const [yColumn, setYColumn] = useState("");
+@app.get("/")
+def home():
+    return {"message": "API is running 🚀"}
 
-  // 📤 رفع الملف
-  const handleUpload = async () => {
-    if (!file) return alert("اختر ملف Excel");
 
-    const formData = new FormData();
-    formData.append("file", file);
+# 📊 Insights بدون AI
+def generate_insights(df):
+    insights = {}
 
-    try {
-      setLoading(true);
+    numeric_df = df.select_dtypes(include=["number"])
 
-      const res = await fetch(API_URL, {
-        method: "POST",
-        body: formData,
-      });
+    if not numeric_df.empty:
+        insights["means"] = numeric_df.mean().to_dict()
+        insights["max"] = numeric_df.max().to_dict()
+        insights["min"] = numeric_df.min().to_dict()
 
-      // 🔥 هنا أهم تعديل
-      const text = await res.text();
-      console.log("RAW RESPONSE:", text);
+        corr = numeric_df.corr()
+        correlations = []
 
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch {
-        alert("❌ الرد ليس JSON:\n\n" + text);
-        return;
-      }
+        for col1 in corr.columns:
+            for col2 in corr.columns:
+                if col1 != col2:
+                    value = corr.loc[col1, col2]
+                    if abs(value) > 0.5:
+                        correlations.append({
+                            "between": f"{col1} و {col2}",
+                            "value": round(value, 2)
+                        })
 
-      if (!res.ok) {
-        alert("❌ خطأ من السيرفر:\n\n" + JSON.stringify(result, null, 2));
-        return;
-      }
+        insights["correlations"] = correlations
 
-      setData(result);
-      setChartType("");
-      setXColumn("");
-      setYColumn("");
+    return insights
 
-    } catch (err) {
-      console.log("ERROR:", err);
-      alert("❌ فشل الاتصال بالسيرفر");
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  return (
-    <div style={{
-      maxWidth: "700px",
-      margin: "auto",
-      padding: "15px",
-      background: "#f8f6f1",
-      minHeight: "100vh"
-    }}>
-      
-      <h2 style={{ textAlign: "center" }}>📊 تحليل Excel</h2>
+# 📤 رفع وتحليل
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
 
-      <input
-        type="file"
-        accept=".xlsx,.xls"
-        style={{ width: "100%", marginBottom: "10px" }}
-        onChange={(e) => setFile(e.target.files[0])}
-      />
+        print("File received:", file.filename)
+        print("Size:", len(contents))
 
-      <button
-        onClick={handleUpload}
-        style={{
-          width: "100%",
-          padding: "12px",
-          background: "#007bff",
-          color: "white",
-          border: "none",
-          borderRadius: "8px",
-          fontWeight: "bold"
-        }}
-      >
-        تحليل الملف
-      </button>
+        # 🔥 حد الحجم
+        if len(contents) > 20_000_000:
+            raise HTTPException(status_code=400, detail="الملف كبير جدًا (الحد 20MB)")
 
-      {loading && <p>⏳ جاري التحليل...</p>}
+        # 📊 قراءة Excel بشكل آمن
+        try:
+            df = pd.read_excel(
+                io.BytesIO(contents),
+                engine="openpyxl",
+                dtype=str  # 🔥 يمنع crash
+            )
+        except Exception:
+            raise HTTPException(status_code=400, detail="ملف غير صالح أو غير مدعوم")
 
-      {data && (
-        <div style={{ marginTop: "20px" }}>
-          <h3>📌 معلومات:</h3>
-          <pre>{JSON.stringify(data.info, null, 2)}</pre>
+        if df.empty:
+            raise HTTPException(status_code=400, detail="الملف فارغ")
 
-          <div style={{
-            marginTop: "20px",
-            padding: "15px",
-            background: "#ffffff",
-            borderRadius: "10px"
-          }}>
-            <h3>🤖 التحليل:</h3>
-            <div style={{ whiteSpace: "pre-line" }}>
-              {data.ai_analysis}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+        # 🧹 تنظيف البيانات
+        df = df.fillna("")
+        df.columns = [str(col).strip() for col in df.columns]
 
-export default Upload;
+        # ⚠️ تحديد الحجم
+        if len(df) > 1000:
+            df = df.head(1000)
+
+        if df.shape[1] > 50:
+            df = df.iloc[:, :50]
+
+        # 📊 معلومات
+        info = {
+            "rows": int(df.shape[0]),
+            "columns": int(df.shape[1]),
+            "columns_names": list(df.columns)
+        }
+
+        records = df.to_dict(orient="records")
+
+        # تحويل الأعمدة الرقمية بعد القراءة
+        for col in df.columns:
+            try:
+                df[col] = pd.to_numeric(df[col])
+            except:
+                pass
+
+        numeric_columns = df.select_dtypes(include=["number"]).columns.tolist()
+        categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
+
+        insights = generate_insights(df)
+
+        return {
+            "info": info,
+            "records": records,
+            "numeric_columns": numeric_columns,
+            "categorical_columns": categorical_columns,
+            "insights": insights,
+            "ai_analysis": "AI disabled"
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ داخلي: {str(e)}")
