@@ -3,8 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
 import numpy as np
+from openai import OpenAI
+import os
 
 app = FastAPI()
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,53 +20,51 @@ app.add_middleware(
 
 @app.get("/")
 def home():
-    return {"message": "Universal Excel Analyzer 🚀"}
+    return {"message": "AI Smart Excel Analyzer 🚀"}
 
 
-# 🧠 كشف أفضل Header
-def detect_header(df):
-    for i in range(min(5, len(df))):
-        row = df.iloc[i]
-        if row.notna().sum() > len(row) / 2:
-            return i
-    return 0
-
-
-# 🧹 تنظيف شامل
-def clean_dataframe(df):
+# 🧹 تنظيف
+def clean_df(df):
     df = df.dropna(how="all")
 
     # كشف header
-    header_row = detect_header(df)
-    df.columns = df.iloc[header_row]
-    df = df[header_row + 1:]
+    for i in range(min(5, len(df))):
+        if df.iloc[i].notna().sum() > len(df.columns) / 2:
+            df.columns = df.iloc[i]
+            df = df[i+1:]
+            break
 
-    # تنظيف أسماء الأعمدة
-    df.columns = [
-        str(c).replace("\n", " ").strip()
-        for c in df.columns
-    ]
-
-    # حذف الأعمدة الفاضية
-    df = df.loc[:, df.notna().any()]
-
-    # تنظيف القيم
+    df.columns = [str(c).replace("\n", " ").strip() for c in df.columns]
     df = df.fillna("")
 
-    # محاولة تحويل الأرقام
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="ignore")
 
     return df
 
 
-# 🧠 تحليل ذكي
-def analyze(df):
+# 📊 اختيار الرسم الأفضل
+def choose_chart(df):
     numeric = df.select_dtypes(include=[np.number])
     text = df.select_dtypes(include=["object"])
 
     charts = []
-    insights = []
+
+    # 📈 Line (تواريخ)
+    for col in df.columns:
+        try:
+            parsed = pd.to_datetime(df[col], errors="coerce")
+            if parsed.notna().sum() > len(df) * 0.5 and not numeric.empty:
+                num = numeric.columns[0]
+                charts.append({
+                    "type": "line",
+                    "x": parsed.astype(str).tolist(),
+                    "y": df[num].tolist(),
+                    "title": f"{num} over time"
+                })
+                return charts
+        except:
+            pass
 
     # 📊 Bar
     if not text.empty and not numeric.empty:
@@ -89,10 +91,6 @@ def analyze(df):
             "title": f"{c1} vs {c2}"
         })
 
-        corr = df[[c1, c2]].corr().iloc[0,1]
-        if abs(corr) > 0.6:
-            insights.append(f"Strong relation between {c1} and {c2}")
-
     # 🥧 Pie
     if not text.empty:
         col = text.columns[0]
@@ -105,17 +103,39 @@ def analyze(df):
             "title": f"Distribution of {col}"
         })
 
-    # 🔍 Outliers
-    for col in numeric.columns:
-        mean = df[col].mean()
-        std = df[col].std()
+    return charts
 
-        outliers = df[(df[col] > mean + 2*std) | (df[col] < mean - 2*std)]
 
-        if len(outliers) > 0:
-            insights.append(f"{col} contains unusual values")
+# 🤖 AI تحليل
+def ai_analysis(df):
+    try:
+        sample = df.head(5).to_string()
 
-    return charts, insights
+        prompt = f"""
+You are a data analyst.
+
+Analyze this dataset sample:
+
+{sample}
+
+Give:
+- One key insight
+- One relationship between columns
+- One recommendation
+
+Keep it short.
+"""
+
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5
+        )
+
+        return res.choices[0].message.content
+
+    except Exception:
+        return "AI unavailable"
 
 
 # 📤 API
@@ -124,37 +144,36 @@ async def upload(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
-        # قراءة كل الشيتات
         sheets = pd.read_excel(
             io.BytesIO(contents),
             engine="openpyxl",
             sheet_name=None
         )
 
-        best_df = None
-        best_size = 0
+        best = None
+        size = 0
 
-        # اختيار أفضل شيت
-        for name, df in sheets.items():
+        for df in sheets.values():
             if df is not None:
-                size = df.shape[0] * df.shape[1]
-                if size > best_size:
-                    best_df = df
-                    best_size = size
+                s = df.shape[0] * df.shape[1]
+                if s > size:
+                    best = df
+                    size = s
 
-        if best_df is None:
-            return {"error": "No valid data found"}
+        if best is None:
+            return {"error": "Empty file"}
 
-        df = clean_dataframe(best_df)
+        df = clean_df(best)
 
-        charts, insights = analyze(df)
+        charts = choose_chart(df)
+        ai_text = ai_analysis(df)
 
         return {
             "rows": len(df),
             "columns": list(df.columns),
-            "preview": df.head(10).to_dict(orient="records"),
             "charts": charts,
-            "insights": insights
+            "ai_analysis": ai_text,
+            "preview": df.head(10).to_dict(orient="records")
         }
 
     except Exception as e:
