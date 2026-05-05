@@ -3,8 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
 import numpy as np
+from openai import OpenAI
+import os
 
 app = FastAPI()
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,10 +20,10 @@ app.add_middleware(
 
 @app.get("/")
 def home():
-    return {"message": "Smart Analyzer (No AI) 🚀"}
+    return {"message": "AI Smart Excel Analyzer 🚀"}
 
 
-# 🧹 تنظيف ذكي
+# 🧹 تنظيف
 def clean_df(df):
     df = df.dropna(how="all")
 
@@ -41,22 +45,26 @@ def clean_df(df):
 
 # 📊 اختيار الرسم الأفضل
 def choose_chart(df):
-    charts = []
     numeric = df.select_dtypes(include=[np.number])
     text = df.select_dtypes(include=["object"])
 
-    # 📈 Line (لو فيه تواريخ)
+    charts = []
+
+    # 📈 Line (تواريخ)
     for col in df.columns:
-        parsed = pd.to_datetime(df[col], errors="coerce")
-        if parsed.notna().sum() > len(df) * 0.5 and not numeric.empty:
-            num = numeric.columns[0]
-            charts.append({
-                "type": "line",
-                "x": parsed.astype(str).tolist(),
-                "y": df[num].tolist(),
-                "title": f"{num} over time"
-            })
-            return charts
+        try:
+            parsed = pd.to_datetime(df[col], errors="coerce")
+            if parsed.notna().sum() > len(df) * 0.5 and not numeric.empty:
+                num = numeric.columns[0]
+                charts.append({
+                    "type": "line",
+                    "x": parsed.astype(str).tolist(),
+                    "y": df[num].tolist(),
+                    "title": f"{num} over time"
+                })
+                return charts
+        except:
+            pass
 
     # 📊 Bar
     if not text.empty and not numeric.empty:
@@ -75,6 +83,7 @@ def choose_chart(df):
     # 📈 Scatter
     if len(numeric.columns) >= 2:
         c1, c2 = numeric.columns[:2]
+
         charts.append({
             "type": "scatter",
             "x": df[c1].tolist(),
@@ -97,38 +106,36 @@ def choose_chart(df):
     return charts
 
 
-# 🧠 Insights ذكية
-def generate_insights(df):
-    insights = []
-    numeric = df.select_dtypes(include=[np.number])
+# 🤖 AI تحليل
+def ai_analysis(df):
+    try:
+        sample = df.head(5).to_string()
 
-    # المتوسط
-    for col in numeric.columns:
-        mean = df[col].mean()
-        insights.append(f"Average of {col} is {round(mean,2)}")
+        prompt = f"""
+You are a data analyst.
 
-    # correlation
-    if len(numeric.columns) >= 2:
-        corr = numeric.corr()
+Analyze this dataset sample:
 
-        for c1 in corr.columns:
-            for c2 in corr.columns:
-                if c1 != c2:
-                    val = corr.loc[c1, c2]
-                    if abs(val) > 0.6:
-                        insights.append(f"Strong relation between {c1} and {c2}")
+{sample}
 
-    # outliers
-    for col in numeric.columns:
-        mean = df[col].mean()
-        std = df[col].std()
+Give:
+- One key insight
+- One relationship between columns
+- One recommendation
 
-        outliers = df[(df[col] > mean + 2*std) | (df[col] < mean - 2*std)]
+Keep it short.
+"""
 
-        if len(outliers) > 0:
-            insights.append(f"{col} has unusual values")
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5
+        )
 
-    return insights
+        return res.choices[0].message.content
+
+    except Exception:
+        return "AI unavailable"
 
 
 # 📤 API
@@ -159,13 +166,13 @@ async def upload(file: UploadFile = File(...)):
         df = clean_df(best)
 
         charts = choose_chart(df)
-        insights = generate_insights(df)
+        ai_text = ai_analysis(df)
 
         return {
             "rows": len(df),
             "columns": list(df.columns),
             "charts": charts,
-            "insights": insights,
+            "ai_analysis": ai_text,
             "preview": df.head(10).to_dict(orient="records")
         }
 
