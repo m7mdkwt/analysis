@@ -132,7 +132,7 @@ async def upload_file(file: UploadFile = File(...)):
 
         # 🤖 AI (محمي)
         try:
-            ai_text = generate_ai_insights(df)
+            ai_text = "AI disabled"
         except Exception:
             ai_text = "AI temporarily unavailable"
 
