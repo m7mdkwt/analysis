@@ -5,7 +5,6 @@ import io
 
 app = FastAPI()
 
-# 🔓 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,172 +15,117 @@ app.add_middleware(
 
 @app.get("/")
 def home():
-    return {"message": "API is running 🚀"}
+    return {"message": "Smart Excel Analyzer 🚀"}
 
 
-# 📊 Insights
-def generate_insights(df):
-    insights = {}
-    numeric_df = df.select_dtypes(include=["number"])
+# 🧠 تحليل ذكي
+def smart_analysis(df):
+    results = {}
 
-    if not numeric_df.empty:
-        insights["mean"] = numeric_df.mean().to_dict()
-        insights["max"] = numeric_df.max().to_dict()
-        insights["min"] = numeric_df.min().to_dict()
+    numeric = df.select_dtypes(include=["number"])
+    text = df.select_dtypes(include=["object"])
 
-    return insights
-
-
-# 📊 Charts تلقائية
-def generate_auto_charts(df):
+    insights = []
     charts = []
 
-    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
-    cat_cols = df.select_dtypes(include=["object"]).columns.tolist()
+    # 📊 أفضل رسم Bar
+    if not text.empty and not numeric.empty:
+        cat = text.columns[0]
+        num = numeric.columns[0]
 
-    # Bar
-    if cat_cols and numeric_cols:
-        x = cat_cols[0]
-        y = numeric_cols[0]
-        grouped = df.groupby(x)[y].mean().reset_index()
+        grouped = df.groupby(cat)[num].mean().reset_index()
 
         charts.append({
             "type": "bar",
-            "x": grouped[x].tolist(),
-            "y": grouped[y].tolist(),
-            "title": f"{y} by {x}"
+            "x": grouped[cat].tolist(),
+            "y": grouped[num].tolist(),
+            "title": f"{num} by {cat}"
         })
 
-    # Scatter
-    if len(numeric_cols) >= 2:
+        insights.append(f"Average {num} varies across {cat}")
+
+    # 📈 Scatter ذكي
+    if len(numeric.columns) >= 2:
+        c1, c2 = numeric.columns[:2]
+
         charts.append({
             "type": "scatter",
-            "x": df[numeric_cols[0]].tolist(),
-            "y": df[numeric_cols[1]].tolist(),
-            "title": f"{numeric_cols[0]} vs {numeric_cols[1]}"
+            "x": df[c1].tolist(),
+            "y": df[c2].tolist(),
+            "title": f"{c1} vs {c2}"
         })
 
-    # Pie
-    if cat_cols:
-        counts = df[cat_cols[0]].value_counts()
+        corr = df[[c1, c2]].corr().iloc[0,1]
+
+        if abs(corr) > 0.6:
+            insights.append(f"Strong relationship between {c1} and {c2} ({round(corr,2)})")
+
+    # 🥧 Pie ذكي
+    if not text.empty:
+        col = text.columns[0]
+        counts = df[col].value_counts()
+
         charts.append({
             "type": "pie",
             "labels": counts.index.tolist(),
             "values": counts.values.tolist(),
-            "title": f"Distribution of {cat_cols[0]}"
+            "title": f"Distribution of {col}"
         })
 
-    return charts
+    # 🔍 Outliers
+    for col in numeric.columns:
+        mean = df[col].mean()
+        std = df[col].std()
+
+        outliers = df[(df[col] > mean + 2*std) | (df[col] < mean - 2*std)]
+
+        if len(outliers) > 0:
+            insights.append(f"{col} has unusual values")
+
+    return charts, insights
 
 
-# 🧠 Correlations
-def generate_correlations(df):
-    results = []
-
-    numeric_df = df.select_dtypes(include=["number"])
-
-    if len(numeric_df.columns) >= 2:
-        corr = numeric_df.corr()
-
-        for col1 in corr.columns:
-            for col2 in corr.columns:
-                if col1 != col2:
-                    val = corr.loc[col1, col2]
-                    if abs(val) > 0.6:
-                        results.append({
-                            "between": f"{col1} & {col2}",
-                            "correlation": round(val, 2)
-                        })
-
-    return results
-
-
-# 📤 رفع وتحليل
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
         if len(contents) > 20_000_000:
-            raise HTTPException(status_code=400, detail="الملف كبير جدًا")
+            raise HTTPException(status_code=400, detail="File too large")
 
-        # 🔥 قراءة كل الشيتات
-        all_sheets = pd.read_excel(
-            io.BytesIO(contents),
-            engine="openpyxl",
-            dtype=str,
-            sheet_name=None
-        )
+        sheets = pd.read_excel(io.BytesIO(contents), engine="openpyxl", sheet_name=None)
 
-        # 🔥 اختيار أول شيت فيه بيانات
         df = None
-        for sheet in all_sheets.values():
-            if sheet is not None and not sheet.empty:
-                df = sheet
+        for s in sheets.values():
+            if not s.empty:
+                df = s
                 break
 
-        if df is None or df.empty:
-            raise HTTPException(status_code=400, detail="الملف فارغ")
+        if df is None:
+            raise HTTPException(status_code=400, detail="Empty file")
 
-        # 🧹 حذف الصفوف الفاضية
         df = df.dropna(how="all")
 
-        # 🔥 إعادة تعيين header
         df.columns = df.iloc[0]
         df = df[1:]
 
-        # تنظيف الأعمدة
-        df.columns = [
-            str(col).replace("\n", " ").strip()
-            for col in df.columns
-        ]
-
-        # تنظيف القيم
+        df.columns = [str(c).replace("\n", " ").strip() for c in df.columns]
         df = df.fillna("")
 
-        # ⚠️ تحديد الحجم
-        if len(df) > 1000:
-            df = df.head(1000)
-
-        if df.shape[1] > 50:
-            df = df.iloc[:, :50]
-
-        # 🔢 تحويل أرقام
         for col in df.columns:
             try:
                 df[col] = pd.to_numeric(df[col])
             except:
                 pass
 
-        # 📊 معلومات
-        info = {
-            "rows": int(df.shape[0]),
-            "columns": int(df.shape[1]),
-            "columns_names": list(df.columns)
-        }
-
-        records = df.to_dict(orient="records")
-
-        numeric_columns = df.select_dtypes(include=["number"]).columns.tolist()
-        categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
-
-        insights = generate_insights(df)
-        charts = generate_auto_charts(df)
-        correlations = generate_correlations(df)
+        charts, insights = smart_analysis(df)
 
         return {
-            "info": info,
-            "records": records,
-            "numeric_columns": numeric_columns,
-            "categorical_columns": categorical_columns,
-            "insights": insights,
+            "rows": len(df),
+            "columns": list(df.columns),
             "charts": charts,
-            "correlations": correlations,
-            "ai_analysis": "AI disabled"
+            "insights": insights
         }
 
-    except HTTPException as e:
-        raise e
-
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e)}
