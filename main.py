@@ -28,7 +28,6 @@ def home():
 # 🤖 AI تحليل
 def generate_ai_insights(df):
     try:
-        # 👇 نخفف البيانات المرسلة للـ AI
         sample = df.sample(min(len(df), 5)).to_string()
 
         prompt = f"""
@@ -56,7 +55,7 @@ def generate_ai_insights(df):
         return f"AI Error: {str(e)}"
 
 
-# 📊 Insights ذكية (بدون AI)
+# 📊 Insights بدون AI
 def generate_insights(df):
     insights = {}
 
@@ -67,7 +66,6 @@ def generate_insights(df):
         insights["max"] = numeric_df.max().to_dict()
         insights["min"] = numeric_df.min().to_dict()
 
-        # correlation
         corr = numeric_df.corr()
         correlations = []
 
@@ -92,11 +90,15 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
-        # 🔥 رفع الحد إلى 20MB
+        # 🔍 Debug
+        print("File received:", file.filename)
+        print("Size:", len(contents))
+
+        # 🔥 حد الحجم
         if len(contents) > 20_000_000:
             raise HTTPException(status_code=400, detail="الملف كبير جدًا (الحد 20MB)")
 
-        # 📊 قراءة Excel بطريقة مستقرة
+        # 📊 قراءة Excel
         try:
             df = pd.read_excel(io.BytesIO(contents), engine="openpyxl")
         except Exception:
@@ -105,14 +107,12 @@ async def upload_file(file: UploadFile = File(...)):
         if df.empty:
             raise HTTPException(status_code=400, detail="الملف فارغ")
 
-        # 🧹 تنظيف البيانات
+        # 🧹 تنظيف
         df = df.dropna(how="all")
 
-        # ⚠️ تحديد الصفوف (حماية الأداء)
         if len(df) > 1000:
             df = df.head(1000)
 
-        # ⚠️ تحديد الأعمدة
         if df.shape[1] > 50:
             df = df.iloc[:, :50]
 
@@ -123,18 +123,18 @@ async def upload_file(file: UploadFile = File(...)):
             "columns_names": list(df.columns)
         }
 
-        # 📊 البيانات
         records = df.to_dict(orient="records")
 
-        # 📊 أنواع الأعمدة
         numeric_columns = df.select_dtypes(include=["number"]).columns.tolist()
         categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
 
-        # 📊 insights محلية
         insights = generate_insights(df)
 
-        # 🤖 AI insights
-        ai_text = generate_ai_insights(df)
+        # 🤖 AI (محمي)
+        try:
+            ai_text = generate_ai_insights(df)
+        except Exception:
+            ai_text = "AI temporarily unavailable"
 
         return {
             "info": info,
