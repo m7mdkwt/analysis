@@ -1,156 +1,196 @@
-import React, { useState } from "react";
-import axios from "axios";
-import Plot from "react-plotly.js";
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
+import io
+import numpy as np
 
-const API_URL = "https://web-production-85e50.up.railway.app/upload";
+app = FastAPI()
 
-function Upload() {
-  const [file, setFile] = useState(null);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-  const handleUpload = async () => {
-    if (!file) return alert("اختر ملف Excel");
+@app.get("/")
+def home():
+    return {"message": "Smart Analyzer (No AI) 🚀"}
 
-    const formData = new FormData();
-    formData.append("file", file);
 
-    try {
-      setLoading(true);
+# 🧹 تنظيف ذكي قوي
+def clean_df(df):
+    df = df.dropna(how="all")
 
-      const res = await axios.post(API_URL, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
+    # 🔥 كشف header بشكل أفضل
+    best_row = 0
+    max_valid = 0
 
-      console.log("DATA:", res.data);
-      setData(res.data);
+    for i in range(min(10, len(df))):
+        count = df.iloc[i].notna().sum()
+        if count > max_valid:
+            max_valid = count
+            best_row = i
 
-    } catch (err) {
-      console.log("ERROR:", err);
-      alert(JSON.stringify(err.response?.data || "Unknown error"));
-    } finally {
-      setLoading(false);
-    }
-  };
+    df.columns = df.iloc[best_row]
+    df = df[best_row + 1:]
 
-  return (
-    <div style={{
-      maxWidth: "700px",
-      margin: "auto",
-      padding: "15px",
-      background: "#f8f6f1",
-      minHeight: "100vh"
-    }}>
-      
-      <h2 style={{ textAlign: "center" }}>📊 تحليل Excel</h2>
+    # تنظيف الأعمدة
+    df.columns = [
+        str(c).replace("\n", " ").strip()
+        for c in df.columns
+    ]
 
-      {/* رفع الملف */}
-      <input
-        type="file"
-        accept=".xlsx,.xls"
-        style={{ width: "100%", marginBottom: "10px" }}
-        onChange={(e) => setFile(e.target.files[0])}
-      />
+    df = df.dropna(axis=1, how="all")
+    df = df.fillna("")
 
-      <button
-        onClick={handleUpload}
-        style={{
-          width: "100%",
-          padding: "12px",
-          background: "#007bff",
-          color: "white",
-          border: "none",
-          borderRadius: "8px",
-          fontWeight: "bold"
-        }}
-      >
-        تحليل الملف
-      </button>
+    # 🔥 تحويل أذكى
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-      {loading && <p>⏳ جاري التحليل...</p>}
+    return df
 
-      {/* 🔥 أهم حماية ضد الصفحة البيضاء */}
-      {data && data.preview && (
-        <div style={{ marginTop: "20px" }}>
 
-          {/* معلومات */}
-          <h3>📌 معلومات:</h3>
-          <p>عدد الصفوف: {data.rows}</p>
+# 📊 اختيار الرسم الأفضل (ذكي)
+def choose_chart(df):
+    charts = []
 
-          {/* الأعمدة */}
-          <h4>الأعمدة:</h4>
-          <ul>
-            {data.columns.map((col, i) => (
-              <li key={i}>{col}</li>
-            ))}
-          </ul>
+    numeric = df.select_dtypes(include=[np.number])
+    text = df.select_dtypes(exclude=[np.number])
 
-          {/* 📊 Charts تلقائية */}
-          <h3>📊 الرسوم:</h3>
+    # 📈 Line (تواريخ)
+    for col in df.columns:
+        parsed = pd.to_datetime(df[col], errors="coerce")
+        if parsed.notna().sum() > len(df) * 0.6:
+            if not numeric.empty:
+                num = numeric.columns[0]
+                charts.append({
+                    "type": "line",
+                    "x": parsed.astype(str).tolist(),
+                    "y": df[num].tolist(),
+                    "title": f"{num} over time"
+                })
+                return charts
 
-          {data.charts && data.charts.length > 0 ? (
-            data.charts.map((chart, i) => (
-              <Plot
-                key={i}
-                style={{ width: "100%", marginBottom: "20px" }}
-                data={[{
-                  x: chart.x,
-                  y: chart.y,
-                  labels: chart.labels,
-                  values: chart.values,
-                  type: chart.type,
-                  mode: chart.type === "scatter" ? "markers" : undefined
-                }]}
-                layout={{ title: chart.title }}
-              />
-            ))
-          ) : (
-            <p>لا يوجد رسوم مناسبة</p>
-          )}
+    # 📊 Bar (أفضل اختيار)
+    if not text.empty and not numeric.empty:
+        cat = text.columns[0]
 
-          {/* 🧠 Insights */}
-          <h3>🧠 التحليل:</h3>
+        # 🔥 اختار عمود رقمي فيه variance أعلى
+        variances = numeric.var()
+        num = variances.idxmax()
 
-          {data.insights && data.insights.length > 0 ? (
-            <ul>
-              {data.insights.map((insight, i) => (
-                <li key={i}>{insight}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>لا يوجد insights</p>
-          )}
+        grouped = df.groupby(cat)[num].mean().reset_index()
 
-          {/* 📋 Preview */}
-          <h3>📋 عينة البيانات:</h3>
+        charts.append({
+            "type": "bar",
+            "x": grouped[cat].tolist(),
+            "y": grouped[num].tolist(),
+            "title": f"{num} by {cat}"
+        })
 
-          <div style={{ overflowX: "auto" }}>
-            <table border="1" style={{ width: "100%", background: "white" }}>
-              <thead>
-                <tr>
-                  {data.columns.map((col, i) => (
-                    <th key={i}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.preview.map((row, i) => (
-                  <tr key={i}>
-                    {data.columns.map((col, j) => (
-                      <td key={j}>{row[col]}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+    # 📈 Scatter
+    if len(numeric.columns) >= 2:
+        c1, c2 = numeric.columns[:2]
+        charts.append({
+            "type": "scatter",
+            "x": df[c1].tolist(),
+            "y": df[c2].tolist(),
+            "title": f"{c1} vs {c2}"
+        })
 
-        </div>
-      )}
-    </div>
-  );
-}
+    # 🥧 Pie (لو القيم قليلة)
+    if not text.empty:
+        col = text.columns[0]
+        counts = df[col].value_counts()
 
-export default Upload;
+        if len(counts) < 10:
+            charts.append({
+                "type": "pie",
+                "labels": counts.index.tolist(),
+                "values": counts.values.tolist(),
+                "title": f"Distribution of {col}"
+            })
+
+    return charts
+
+
+# 🧠 Insights أقوى
+def generate_insights(df):
+    insights = []
+    numeric = df.select_dtypes(include=[np.number])
+
+    for col in numeric.columns:
+        mean = df[col].mean()
+        insights.append(f"{col}: avg={round(mean,2)}")
+
+    # correlation
+    if len(numeric.columns) >= 2:
+        corr = numeric.corr()
+
+        for c1 in corr.columns:
+            for c2 in corr.columns:
+                if c1 != c2:
+                    val = corr.loc[c1, c2]
+                    if abs(val) > 0.7:
+                        insights.append(f"{c1} ↔ {c2} strong relation")
+
+    # outliers
+    for col in numeric.columns:
+        mean = df[col].mean()
+        std = df[col].std()
+
+        if std > 0:
+            outliers = df[
+                (df[col] > mean + 2*std) |
+                (df[col] < mean - 2*std)
+            ]
+
+            if len(outliers) > 0:
+                insights.append(f"{col} has outliers")
+
+    return insights
+
+
+# 📤 API
+@app.post("/upload")
+async def upload(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+
+        sheets = pd.read_excel(
+            io.BytesIO(contents),
+            engine="openpyxl",
+            sheet_name=None
+        )
+
+        best = None
+        size = 0
+
+        # 🔥 اختيار أفضل sheet
+        for df in sheets.values():
+            if df is not None:
+                s = df.shape[0] * df.shape[1]
+                if s > size:
+                    best = df
+                    size = s
+
+        if best is None:
+            return {"error": "Empty file"}
+
+        df = clean_df(best)
+
+        charts = choose_chart(df)
+        insights = generate_insights(df)
+
+        return {
+            "rows": len(df),
+            "columns": list(df.columns),
+            "charts": charts,
+            "insights": insights,
+            "preview": df.head(10).to_dict(orient="records")
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
