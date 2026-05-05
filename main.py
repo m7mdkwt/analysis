@@ -19,10 +19,9 @@ def home():
     return {"message": "API is running 🚀"}
 
 
-# 📊 Insights بسيطة
+# 📊 Insights
 def generate_insights(df):
     insights = {}
-
     numeric_df = df.select_dtypes(include=["number"])
 
     if not numeric_df.empty:
@@ -44,7 +43,6 @@ def generate_auto_charts(df):
     if cat_cols and numeric_cols:
         x = cat_cols[0]
         y = numeric_cols[0]
-
         grouped = df.groupby(x)[y].mean().reset_index()
 
         charts.append({
@@ -66,7 +64,6 @@ def generate_auto_charts(df):
     # Pie
     if cat_cols:
         counts = df[cat_cols[0]].value_counts()
-
         charts.append({
             "type": "pie",
             "labels": counts.index.tolist(),
@@ -77,7 +74,7 @@ def generate_auto_charts(df):
     return charts
 
 
-# 🧠 Correlation
+# 🧠 Correlations
 def generate_correlations(df):
     results = []
 
@@ -90,7 +87,6 @@ def generate_correlations(df):
             for col2 in corr.columns:
                 if col1 != col2:
                     val = corr.loc[col1, col2]
-
                     if abs(val) > 0.6:
                         results.append({
                             "between": f"{col1} & {col2}",
@@ -109,11 +105,30 @@ async def upload(file: UploadFile = File(...)):
         if len(contents) > 20_000_000:
             raise HTTPException(status_code=400, detail="الملف كبير جدًا")
 
-        # قراءة Excel
-        df = pd.read_excel(io.BytesIO(contents), engine="openpyxl")
+        # 🔥 قراءة كل الشيتات
+        all_sheets = pd.read_excel(
+            io.BytesIO(contents),
+            engine="openpyxl",
+            dtype=str,
+            sheet_name=None
+        )
+
+        # 🔥 اختيار أول شيت فيه بيانات
+        df = None
+        for sheet in all_sheets.values():
+            if sheet is not None and not sheet.empty:
+                df = sheet
+                break
 
         if df is None or df.empty:
             raise HTTPException(status_code=400, detail="الملف فارغ")
+
+        # 🧹 حذف الصفوف الفاضية
+        df = df.dropna(how="all")
+
+        # 🔥 إعادة تعيين header
+        df.columns = df.iloc[0]
+        df = df[1:]
 
         # تنظيف الأعمدة
         df.columns = [
@@ -124,21 +139,21 @@ async def upload(file: UploadFile = File(...)):
         # تنظيف القيم
         df = df.fillna("")
 
-        # تقليل الحجم
+        # ⚠️ تحديد الحجم
         if len(df) > 1000:
             df = df.head(1000)
 
         if df.shape[1] > 50:
             df = df.iloc[:, :50]
 
-        # تحويل أرقام
+        # 🔢 تحويل أرقام
         for col in df.columns:
             try:
                 df[col] = pd.to_numeric(df[col])
             except:
                 pass
 
-        # معلومات
+        # 📊 معلومات
         info = {
             "rows": int(df.shape[0]),
             "columns": int(df.shape[1]),
