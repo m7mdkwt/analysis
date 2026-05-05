@@ -16,6 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🤖 OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
@@ -27,7 +28,8 @@ def home():
 # 🤖 AI تحليل
 def generate_ai_insights(df):
     try:
-        sample = df.head(10).to_string()
+        # 👇 نخفف البيانات المرسلة للـ AI
+        sample = df.sample(min(len(df), 5)).to_string()
 
         prompt = f"""
 لديك البيانات التالية:
@@ -90,25 +92,41 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
-        if len(contents) > 5_000_000:
-            raise HTTPException(status_code=400, detail="حجم الملف كبير")
+        # 🔥 رفع الحد إلى 20MB
+        if len(contents) > 20_000_000:
+            raise HTTPException(status_code=400, detail="الملف كبير جدًا (الحد 20MB)")
 
+        # 📊 قراءة Excel بطريقة مستقرة
         try:
-            df = pd.read_excel(io.BytesIO(contents))
+            df = pd.read_excel(io.BytesIO(contents), engine="openpyxl")
         except Exception:
-            raise HTTPException(status_code=400, detail="ملف غير صالح")
+            raise HTTPException(status_code=400, detail="ملف غير صالح أو غير مدعوم")
 
         if df.empty:
             raise HTTPException(status_code=400, detail="الملف فارغ")
 
+        # 🧹 تنظيف البيانات
+        df = df.dropna(how="all")
+
+        # ⚠️ تحديد الصفوف (حماية الأداء)
+        if len(df) > 1000:
+            df = df.head(1000)
+
+        # ⚠️ تحديد الأعمدة
+        if df.shape[1] > 50:
+            df = df.iloc[:, :50]
+
+        # 📊 معلومات
         info = {
             "rows": int(df.shape[0]),
             "columns": int(df.shape[1]),
             "columns_names": list(df.columns)
         }
 
+        # 📊 البيانات
         records = df.to_dict(orient="records")
 
+        # 📊 أنواع الأعمدة
         numeric_columns = df.select_dtypes(include=["number"]).columns.tolist()
         categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
 
@@ -131,4 +149,4 @@ async def upload_file(file: UploadFile = File(...)):
         raise e
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"خطأ داخلي: {str(e)}")
