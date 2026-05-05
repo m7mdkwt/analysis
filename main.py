@@ -61,22 +61,30 @@ async def upload_file(file: UploadFile = File(...)):
         if len(contents) > 20_000_000:
             raise HTTPException(status_code=400, detail="الملف كبير جدًا (الحد 20MB)")
 
-        # 📊 قراءة Excel بشكل آمن
+        # 📊 قراءة Excel بشكل قوي جدًا
         try:
             df = pd.read_excel(
                 io.BytesIO(contents),
                 engine="openpyxl",
-                dtype=str  # 🔥 يمنع crash
+                dtype=str,
+                sheet_name=0
             )
-        except Exception:
-            raise HTTPException(status_code=400, detail="ملف غير صالح أو غير مدعوم")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"خطأ في قراءة الملف: {str(e)}")
 
-        if df.empty:
+        if df is None or df.empty:
             raise HTTPException(status_code=400, detail="الملف فارغ")
 
-        # 🧹 تنظيف البيانات
+        # 🧹 تنظيف قوي
         df = df.fillna("")
-        df.columns = [str(col).strip() for col in df.columns]
+        df = df.loc[:, ~df.columns.duplicated()]  # حذف الأعمدة المكررة
+        df = df.dropna(axis=1, how="all")  # حذف الأعمدة الفارغة
+
+        # إصلاح أسماء الأعمدة
+        df.columns = [
+            f"col_{i}" if str(c).strip() == "" else str(c).strip()
+            for i, c in enumerate(df.columns)
+        ]
 
         # ⚠️ تحديد الحجم
         if len(df) > 1000:
@@ -84,6 +92,13 @@ async def upload_file(file: UploadFile = File(...)):
 
         if df.shape[1] > 50:
             df = df.iloc[:, :50]
+
+        # 📊 تحويل الأعمدة الرقمية
+        for col in df.columns:
+            try:
+                df[col] = pd.to_numeric(df[col])
+            except:
+                pass
 
         # 📊 معلومات
         info = {
@@ -93,13 +108,6 @@ async def upload_file(file: UploadFile = File(...)):
         }
 
         records = df.to_dict(orient="records")
-
-        # تحويل الأعمدة الرقمية بعد القراءة
-        for col in df.columns:
-            try:
-                df[col] = pd.to_numeric(df[col])
-            except:
-                pass
 
         numeric_columns = df.select_dtypes(include=["number"]).columns.tolist()
         categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
