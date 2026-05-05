@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
@@ -6,7 +6,7 @@ import numpy as np
 
 app = FastAPI()
 
-# 🔥 CORS مضبوط للإنتاج
+# 🔥 CORS (مهم)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -30,7 +30,6 @@ def clean_df(df):
     best_row = 0
     max_valid = 0
 
-    # 🔍 اكتشاف أفضل header
     for i in range(min(10, len(df))):
         count = df.iloc[i].notna().sum()
         if count > max_valid:
@@ -40,7 +39,6 @@ def clean_df(df):
     df.columns = df.iloc[best_row]
     df = df[best_row + 1:]
 
-    # تنظيف أسماء الأعمدة
     df.columns = [
         str(c).replace("\n", " ").strip()
         for c in df.columns
@@ -49,7 +47,7 @@ def clean_df(df):
     df = df.dropna(axis=1, how="all")
     df = df.fillna("")
 
-    # 🔢 تحويل الأرقام بشكل آمن
+    # 🔢 تحويل آمن
     for col in df.columns:
         try:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -59,14 +57,14 @@ def clean_df(df):
     return df
 
 
-# 📊 إنشاء الرسوم
+# 📊 Charts
 def generate_charts(df):
     charts = []
 
     numeric = df.select_dtypes(include=[np.number])
     text = df.select_dtypes(exclude=[np.number])
 
-    # 📊 Bar Chart
+    # Bar
     if not text.empty and not numeric.empty:
         cat = text.columns[0]
         num = numeric.columns[0]
@@ -80,7 +78,7 @@ def generate_charts(df):
             "title": f"{num} by {cat}"
         })
 
-    # 📈 Scatter
+    # Scatter
     if len(numeric.columns) >= 2:
         c1, c2 = numeric.columns[:2]
 
@@ -91,7 +89,7 @@ def generate_charts(df):
             "title": f"{c1} vs {c2}"
         })
 
-    # 🥧 Pie
+    # Pie
     if not text.empty:
         col = text.columns[0]
         counts = df[col].value_counts()
@@ -107,7 +105,7 @@ def generate_charts(df):
     return charts
 
 
-# 🧠 العلاقات
+# 🧠 Correlations
 def generate_correlations(df):
     results = []
 
@@ -136,20 +134,23 @@ def generate_insights(df):
     numeric = df.select_dtypes(include=[np.number])
 
     for col in numeric.columns:
-        mean = df[col].mean()
-        insights.append(f"{col}: avg={round(mean,2)}")
+        try:
+            mean = df[col].mean()
+            insights.append(f"{col}: avg={round(mean,2)}")
+        except:
+            pass
 
     return insights
 
 
-# 📤 رفع وتحليل
+# 📤 API
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
         if len(contents) == 0:
-            raise HTTPException(status_code=400, detail="Empty file")
+            return {"error": "Empty file"}
 
         sheets = pd.read_excel(
             io.BytesIO(contents),
@@ -160,7 +161,6 @@ async def upload(file: UploadFile = File(...)):
         best = None
         size = 0
 
-        # 🔥 اختيار أفضل Sheet
         for df in sheets.values():
             if df is not None:
                 s = df.shape[0] * df.shape[1]
@@ -169,7 +169,7 @@ async def upload(file: UploadFile = File(...)):
                     size = s
 
         if best is None:
-            raise HTTPException(status_code=400, detail="No data found")
+            return {"error": "No data found"}
 
         df = clean_df(best)
 
@@ -190,5 +190,6 @@ async def upload(file: UploadFile = File(...)):
 
     except Exception as e:
         return {
-            "error": str(e)
+            "error": str(e) if e else "Unknown backend error",
+            "type": str(type(e))
         }
