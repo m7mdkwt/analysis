@@ -2,6 +2,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
+import traceback
 
 app = FastAPI()
 
@@ -57,11 +58,10 @@ async def upload_file(file: UploadFile = File(...)):
         print("File received:", file.filename)
         print("Size:", len(contents))
 
-        # 🔥 حد الحجم
         if len(contents) > 20_000_000:
-            raise HTTPException(status_code=400, detail="الملف كبير جدًا (الحد 20MB)")
+            raise HTTPException(status_code=400, detail="الملف كبير جدًا")
 
-        # 📊 قراءة Excel بشكل قوي جدًا
+        # 🔥 قراءة Excel
         try:
             df = pd.read_excel(
                 io.BytesIO(contents),
@@ -70,37 +70,37 @@ async def upload_file(file: UploadFile = File(...)):
                 sheet_name=0
             )
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"خطأ في قراءة الملف: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"خطأ قراءة Excel: {str(e)}")
+
+        print("Columns:", df.columns)
 
         if df is None or df.empty:
             raise HTTPException(status_code=400, detail="الملف فارغ")
 
-        # 🧹 تنظيف قوي
+        # تنظيف
         df = df.fillna("")
-        df = df.loc[:, ~df.columns.duplicated()]  # حذف الأعمدة المكررة
-        df = df.dropna(axis=1, how="all")  # حذف الأعمدة الفارغة
+        df = df.loc[:, ~df.columns.duplicated()]
+        df = df.dropna(axis=1, how="all")
 
-        # إصلاح أسماء الأعمدة
         df.columns = [
             f"col_{i}" if str(c).strip() == "" else str(c).strip()
             for i, c in enumerate(df.columns)
         ]
 
-        # ⚠️ تحديد الحجم
+        # تقليل الحجم
         if len(df) > 1000:
             df = df.head(1000)
 
         if df.shape[1] > 50:
             df = df.iloc[:, :50]
 
-        # 📊 تحويل الأعمدة الرقمية
+        # تحويل أرقام
         for col in df.columns:
             try:
                 df[col] = pd.to_numeric(df[col])
             except:
                 pass
 
-        # 📊 معلومات
         info = {
             "rows": int(df.shape[0]),
             "columns": int(df.shape[1]),
@@ -126,5 +126,12 @@ async def upload_file(file: UploadFile = File(...)):
     except HTTPException as e:
         raise e
 
+    # 🔥 أهم جزء: إظهار الخطأ الحقيقي
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطأ داخلي: {str(e)}")
+        print("🔥 ERROR:", str(e))
+        print(traceback.format_exc())
+
+        raise HTTPException(
+            status_code=500,
+            detail=traceback.format_exc()
+        )
