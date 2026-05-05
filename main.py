@@ -1,110 +1,252 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-import pandas as pd
-import io
+import React, { useState } from "react";
+import Plot from "react-plotly.js";
 
-app = FastAPI()
+const API_URL = "https://web-production-85e50.up.railway.app/upload";
 
-# 🔓 CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+function Upload() {
+  const [file, setFile] = useState(null);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
 
+  const [chartType, setChartType] = useState("");
+  const [xColumn, setXColumn] = useState("");
+  const [yColumn, setYColumn] = useState("");
 
-@app.get("/")
-def home():
-    return {"message": "API is running 🚀"}
+  // 📤 رفع الملف
+  const handleUpload = async () => {
+    if (!file) return alert("اختر ملف Excel");
 
+    const formData = new FormData();
+    formData.append("file", file);
 
-# 📊 Insights بدون AI
-def generate_insights(df):
-    insights = {}
+    try {
+      setLoading(true);
 
-    numeric_df = df.select_dtypes(include=["number"])
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: formData,
+      });
 
-    if not numeric_df.empty:
-        insights["means"] = numeric_df.mean().to_dict()
-        insights["max"] = numeric_df.max().to_dict()
-        insights["min"] = numeric_df.min().to_dict()
+      const result = await res.json();
 
-        corr = numeric_df.corr()
-        correlations = []
+      console.log("SUCCESS:", result);
 
-        for col1 in corr.columns:
-            for col2 in corr.columns:
-                if col1 != col2:
-                    value = corr.loc[col1, col2]
-                    if abs(value) > 0.5:
-                        correlations.append({
-                            "between": f"{col1} و {col2}",
-                            "value": round(value, 2)
-                        })
+      if (!res.ok) {
+        alert(JSON.stringify(result));
+        return;
+      }
 
-        insights["correlations"] = correlations
+      setData(result);
+      setChartType("");
+      setXColumn("");
+      setYColumn("");
 
-    return insights
+    } catch (err) {
+      console.log("ERROR:", err);
+      alert("فشل الاتصال بالسيرفر");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  // 📊 Bar
+  const renderBar = () => {
+    if (!xColumn || !yColumn) return <p>⚠️ اختر X و Y</p>;
 
-# 📤 رفع وتحليل
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    try:
-        contents = await file.read()
+    if (typeof data.records[0][yColumn] !== "number") {
+      return <p>⚠️ العمود Y يجب أن يكون رقم</p>;
+    }
 
-        print("File received:", file.filename)
-        print("Size:", len(contents))
+    const grouped = {};
 
-        # 🔥 حد الحجم
-        if len(contents) > 20_000_000:
-            raise HTTPException(status_code=400, detail="الملف كبير جدًا (الحد 20MB)")
+    data.records.forEach(r => {
+      const key = r[xColumn];
+      const value = Number(r[yColumn]);
 
-        # 📊 قراءة Excel
-        try:
-            df = pd.read_excel(io.BytesIO(contents), engine="openpyxl")
-        except Exception:
-            raise HTTPException(status_code=400, detail="ملف غير صالح أو غير مدعوم")
+      if (!isNaN(value)) {
+        grouped[key] = (grouped[key] || 0) + value;
+      }
+    });
 
-        if df.empty:
-            raise HTTPException(status_code=400, detail="الملف فارغ")
+    return (
+      <Plot
+        style={{ width: "100%" }}
+        data={[{
+          x: Object.keys(grouped),
+          y: Object.values(grouped),
+          type: "bar",
+          marker: { color: "#007bff" }
+        }]}
+        layout={{
+          title: `${yColumn} حسب ${xColumn}`
+        }}
+      />
+    );
+  };
 
-        # 🧹 تنظيف
-        df = df.dropna(how="all")
+  // 🥧 Pie
+  const renderPie = () => {
+    if (!xColumn || !yColumn) return <p>⚠️ اختر X و Y</p>;
 
-        if len(df) > 1000:
-            df = df.head(1000)
+    if (typeof data.records[0][yColumn] !== "number") {
+      return <p>⚠️ العمود Y يجب أن يكون رقم</p>;
+    }
 
-        if df.shape[1] > 50:
-            df = df.iloc[:, :50]
+    const grouped = {};
 
-        # 📊 معلومات
-        info = {
-            "rows": int(df.shape[0]),
-            "columns": int(df.shape[1]),
-            "columns_names": list(df.columns)
-        }
+    data.records.forEach(r => {
+      const key = r[xColumn];
+      const value = Number(r[yColumn]);
 
-        records = df.to_dict(orient="records")
+      if (!isNaN(value)) {
+        grouped[key] = (grouped[key] || 0) + value;
+      }
+    });
 
-        numeric_columns = df.select_dtypes(include=["number"]).columns.tolist()
-        categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
+    return (
+      <Plot
+        style={{ width: "100%" }}
+        data={[{
+          labels: Object.keys(grouped),
+          values: Object.values(grouped),
+          type: "pie"
+        }]}
+        layout={{
+          title: `توزيع ${yColumn} حسب ${xColumn}`
+        }}
+      />
+    );
+  };
 
-        insights = generate_insights(df)
+  // 📈 Scatter
+  const renderScatter = () => {
+    if (!xColumn || !yColumn) return <p>⚠️ اختر X و Y</p>;
 
-        return {
-            "info": info,
-            "records": records,
-            "numeric_columns": numeric_columns,
-            "categorical_columns": categorical_columns,
-            "insights": insights,
-            "ai_analysis": "AI disabled for debugging"
-        }
+    if (
+      typeof data.records[0][xColumn] !== "number" ||
+      typeof data.records[0][yColumn] !== "number"
+    ) {
+      return <p>⚠️ Scatter يحتاج أعمدة رقمية</p>;
+    }
 
-    except HTTPException as e:
-        raise e
+    const x = data.records.map(r => r[xColumn]);
+    const y = data.records.map(r => r[yColumn]);
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطأ داخلي: {str(e)}")
+    return (
+      <Plot
+        style={{ width: "100%" }}
+        data={[{
+          x: x,
+          y: y,
+          mode: "markers",
+          type: "scatter",
+          marker: { color: "red" }
+        }]}
+        layout={{
+          title: `العلاقة بين ${xColumn} و ${yColumn}`,
+          xaxis: { title: xColumn },
+          yaxis: { title: yColumn }
+        }}
+      />
+    );
+  };
+
+  return (
+    <div style={{
+      maxWidth: "700px",
+      margin: "auto",
+      padding: "15px",
+      background: "#f8f6f1",
+      minHeight: "100vh"
+    }}>
+      
+      <h2 style={{ textAlign: "center" }}>📊 تحليل Excel</h2>
+
+      <input
+        type="file"
+        accept=".xlsx,.xls"
+        style={{ width: "100%", marginBottom: "10px" }}
+        onChange={(e) => setFile(e.target.files[0])}
+      />
+
+      <button
+        onClick={handleUpload}
+        style={{
+          width: "100%",
+          padding: "12px",
+          background: "#007bff",
+          color: "white",
+          border: "none",
+          borderRadius: "8px",
+          fontWeight: "bold"
+        }}
+      >
+        تحليل الملف
+      </button>
+
+      {loading && <p>⏳ جاري التحليل...</p>}
+
+      {data && (
+        <div style={{ marginTop: "20px" }}>
+          
+          <h3>📌 معلومات:</h3>
+          <pre>{JSON.stringify(data.info, null, 2)}</pre>
+
+          <h3>🎛️ تخصيص الرسم:</h3>
+
+          <select
+            value={chartType}
+            onChange={(e) => setChartType(e.target.value)}
+            style={{ width: "100%", marginBottom: "10px" }}
+          >
+            <option value="">اختر نوع الرسم</option>
+            <option value="bar">Bar</option>
+            <option value="pie">Pie</option>
+            <option value="scatter">Scatter</option>
+          </select>
+
+          <select
+            value={xColumn}
+            onChange={(e) => setXColumn(e.target.value)}
+            style={{ width: "100%", marginBottom: "10px" }}
+          >
+            <option value="">اختر X</option>
+            {data.info.columns_names.map(col => (
+              <option key={col}>{col}</option>
+            ))}
+          </select>
+
+          <select
+            value={yColumn}
+            onChange={(e) => setYColumn(e.target.value)}
+            style={{ width: "100%", marginBottom: "20px" }}
+          >
+            <option value="">اختر Y</option>
+            {data.info.columns_names.map(col => (
+              <option key={col}>{col}</option>
+            ))}
+          </select>
+
+          {chartType === "bar" && renderBar()}
+          {chartType === "pie" && renderPie()}
+          {chartType === "scatter" && renderScatter()}
+
+          <div style={{
+            marginTop: "20px",
+            padding: "15px",
+            background: "#ffffff",
+            borderRadius: "10px"
+          }}>
+            <h3>🤖 التحليل:</h3>
+            <div style={{ whiteSpace: "pre-line" }}>
+              {data.ai_analysis}
+            </div>
+          </div>
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Upload;
