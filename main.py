@@ -1,7 +1,8 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
+import numpy as np
 
 app = FastAPI()
 
@@ -15,20 +16,55 @@ app.add_middleware(
 
 @app.get("/")
 def home():
-    return {"message": "Smart Excel Analyzer 🚀"}
+    return {"message": "Universal Excel Analyzer 🚀"}
+
+
+# 🧠 كشف أفضل Header
+def detect_header(df):
+    for i in range(min(5, len(df))):
+        row = df.iloc[i]
+        if row.notna().sum() > len(row) / 2:
+            return i
+    return 0
+
+
+# 🧹 تنظيف شامل
+def clean_dataframe(df):
+    df = df.dropna(how="all")
+
+    # كشف header
+    header_row = detect_header(df)
+    df.columns = df.iloc[header_row]
+    df = df[header_row + 1:]
+
+    # تنظيف أسماء الأعمدة
+    df.columns = [
+        str(c).replace("\n", " ").strip()
+        for c in df.columns
+    ]
+
+    # حذف الأعمدة الفاضية
+    df = df.loc[:, df.notna().any()]
+
+    # تنظيف القيم
+    df = df.fillna("")
+
+    # محاولة تحويل الأرقام
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="ignore")
+
+    return df
 
 
 # 🧠 تحليل ذكي
-def smart_analysis(df):
-    results = {}
-
-    numeric = df.select_dtypes(include=["number"])
+def analyze(df):
+    numeric = df.select_dtypes(include=[np.number])
     text = df.select_dtypes(include=["object"])
 
-    insights = []
     charts = []
+    insights = []
 
-    # 📊 أفضل رسم Bar
+    # 📊 Bar
     if not text.empty and not numeric.empty:
         cat = text.columns[0]
         num = numeric.columns[0]
@@ -42,9 +78,7 @@ def smart_analysis(df):
             "title": f"{num} by {cat}"
         })
 
-        insights.append(f"Average {num} varies across {cat}")
-
-    # 📈 Scatter ذكي
+    # 📈 Scatter
     if len(numeric.columns) >= 2:
         c1, c2 = numeric.columns[:2]
 
@@ -56,11 +90,10 @@ def smart_analysis(df):
         })
 
         corr = df[[c1, c2]].corr().iloc[0,1]
-
         if abs(corr) > 0.6:
-            insights.append(f"Strong relationship between {c1} and {c2} ({round(corr,2)})")
+            insights.append(f"Strong relation between {c1} and {c2}")
 
-    # 🥧 Pie ذكي
+    # 🥧 Pie
     if not text.empty:
         col = text.columns[0]
         counts = df[col].value_counts()
@@ -80,49 +113,46 @@ def smart_analysis(df):
         outliers = df[(df[col] > mean + 2*std) | (df[col] < mean - 2*std)]
 
         if len(outliers) > 0:
-            insights.append(f"{col} has unusual values")
+            insights.append(f"{col} contains unusual values")
 
     return charts, insights
 
 
+# 📤 API
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
-        if len(contents) > 20_000_000:
-            raise HTTPException(status_code=400, detail="File too large")
+        # قراءة كل الشيتات
+        sheets = pd.read_excel(
+            io.BytesIO(contents),
+            engine="openpyxl",
+            sheet_name=None
+        )
 
-        sheets = pd.read_excel(io.BytesIO(contents), engine="openpyxl", sheet_name=None)
+        best_df = None
+        best_size = 0
 
-        df = None
-        for s in sheets.values():
-            if not s.empty:
-                df = s
-                break
+        # اختيار أفضل شيت
+        for name, df in sheets.items():
+            if df is not None:
+                size = df.shape[0] * df.shape[1]
+                if size > best_size:
+                    best_df = df
+                    best_size = size
 
-        if df is None:
-            raise HTTPException(status_code=400, detail="Empty file")
+        if best_df is None:
+            return {"error": "No valid data found"}
 
-        df = df.dropna(how="all")
+        df = clean_dataframe(best_df)
 
-        df.columns = df.iloc[0]
-        df = df[1:]
-
-        df.columns = [str(c).replace("\n", " ").strip() for c in df.columns]
-        df = df.fillna("")
-
-        for col in df.columns:
-            try:
-                df[col] = pd.to_numeric(df[col])
-            except:
-                pass
-
-        charts, insights = smart_analysis(df)
+        charts, insights = analyze(df)
 
         return {
             "rows": len(df),
             "columns": list(df.columns),
+            "preview": df.head(10).to_dict(orient="records"),
             "charts": charts,
             "insights": insights
         }
