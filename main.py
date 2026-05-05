@@ -6,11 +6,14 @@ import numpy as np
 
 app = FastAPI()
 
-# 🔓 CORS
+# 🔥 CORS مضبوط للإنتاج
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[
+        "https://pandazone97.com",
+        "http://localhost:3000"
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -27,6 +30,7 @@ def clean_df(df):
     best_row = 0
     max_valid = 0
 
+    # 🔍 اكتشاف أفضل header
     for i in range(min(10, len(df))):
         count = df.iloc[i].notna().sum()
         if count > max_valid:
@@ -36,6 +40,7 @@ def clean_df(df):
     df.columns = df.iloc[best_row]
     df = df[best_row + 1:]
 
+    # تنظيف أسماء الأعمدة
     df.columns = [
         str(c).replace("\n", " ").strip()
         for c in df.columns
@@ -44,26 +49,29 @@ def clean_df(df):
     df = df.dropna(axis=1, how="all")
     df = df.fillna("")
 
-    # تحويل الأعمدة
+    # 🔢 تحويل الأرقام بشكل آمن
     for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="ignore")
+        try:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        except:
+            pass
 
     return df
 
 
-# 📊 Charts تلقائية
+# 📊 إنشاء الرسوم
 def generate_charts(df):
     charts = []
 
     numeric = df.select_dtypes(include=[np.number])
     text = df.select_dtypes(exclude=[np.number])
 
-    # Bar
+    # 📊 Bar Chart
     if not text.empty and not numeric.empty:
         cat = text.columns[0]
         num = numeric.columns[0]
 
-        grouped = df.groupby(cat)[num].mean().reset_index()
+        grouped = df[df[cat] != ""].groupby(cat)[num].mean().reset_index()
 
         charts.append({
             "type": "bar",
@@ -72,7 +80,7 @@ def generate_charts(df):
             "title": f"{num} by {cat}"
         })
 
-    # Scatter
+    # 📈 Scatter
     if len(numeric.columns) >= 2:
         c1, c2 = numeric.columns[:2]
 
@@ -83,7 +91,7 @@ def generate_charts(df):
             "title": f"{c1} vs {c2}"
         })
 
-    # Pie
+    # 🥧 Pie
     if not text.empty:
         col = text.columns[0]
         counts = df[col].value_counts()
@@ -99,7 +107,7 @@ def generate_charts(df):
     return charts
 
 
-# 🧠 Correlations
+# 🧠 العلاقات
 def generate_correlations(df):
     results = []
 
@@ -134,7 +142,7 @@ def generate_insights(df):
     return insights
 
 
-# 📤 API
+# 📤 رفع وتحليل
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     try:
@@ -152,7 +160,7 @@ async def upload(file: UploadFile = File(...)):
         best = None
         size = 0
 
-        # اختيار أفضل Sheet
+        # 🔥 اختيار أفضل Sheet
         for df in sheets.values():
             if df is not None:
                 s = df.shape[0] * df.shape[1]
@@ -181,4 +189,6 @@ async def upload(file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "error": str(e)
+        }
