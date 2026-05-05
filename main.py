@@ -19,49 +19,67 @@ def home():
     return {"message": "Smart Analyzer (No AI) 🚀"}
 
 
-# 🧹 تنظيف ذكي
+# 🧹 تنظيف ذكي قوي
 def clean_df(df):
     df = df.dropna(how="all")
 
-    # كشف header
-    for i in range(min(5, len(df))):
-        if df.iloc[i].notna().sum() > len(df.columns) / 2:
-            df.columns = df.iloc[i]
-            df = df[i+1:]
-            break
+    # 🔥 كشف header بشكل أفضل
+    best_row = 0
+    max_valid = 0
 
-    df.columns = [str(c).replace("\n", " ").strip() for c in df.columns]
+    for i in range(min(10, len(df))):
+        count = df.iloc[i].notna().sum()
+        if count > max_valid:
+            max_valid = count
+            best_row = i
+
+    df.columns = df.iloc[best_row]
+    df = df[best_row + 1:]
+
+    # تنظيف الأعمدة
+    df.columns = [
+        str(c).replace("\n", " ").strip()
+        for c in df.columns
+    ]
+
+    df = df.dropna(axis=1, how="all")
     df = df.fillna("")
 
+    # 🔥 تحويل أذكى
     for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="ignore")
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 
 
-# 📊 اختيار الرسم الأفضل
+# 📊 اختيار الرسم الأفضل (ذكي)
 def choose_chart(df):
     charts = []
-    numeric = df.select_dtypes(include=[np.number])
-    text = df.select_dtypes(include=["object"])
 
-    # 📈 Line (لو فيه تواريخ)
+    numeric = df.select_dtypes(include=[np.number])
+    text = df.select_dtypes(exclude=[np.number])
+
+    # 📈 Line (تواريخ)
     for col in df.columns:
         parsed = pd.to_datetime(df[col], errors="coerce")
-        if parsed.notna().sum() > len(df) * 0.5 and not numeric.empty:
-            num = numeric.columns[0]
-            charts.append({
-                "type": "line",
-                "x": parsed.astype(str).tolist(),
-                "y": df[num].tolist(),
-                "title": f"{num} over time"
-            })
-            return charts
+        if parsed.notna().sum() > len(df) * 0.6:
+            if not numeric.empty:
+                num = numeric.columns[0]
+                charts.append({
+                    "type": "line",
+                    "x": parsed.astype(str).tolist(),
+                    "y": df[num].tolist(),
+                    "title": f"{num} over time"
+                })
+                return charts
 
-    # 📊 Bar
+    # 📊 Bar (أفضل اختيار)
     if not text.empty and not numeric.empty:
         cat = text.columns[0]
-        num = numeric.columns[0]
+
+        # 🔥 اختار عمود رقمي فيه variance أعلى
+        variances = numeric.var()
+        num = variances.idxmax()
 
         grouped = df.groupby(cat)[num].mean().reset_index()
 
@@ -82,30 +100,30 @@ def choose_chart(df):
             "title": f"{c1} vs {c2}"
         })
 
-    # 🥧 Pie
+    # 🥧 Pie (لو القيم قليلة)
     if not text.empty:
         col = text.columns[0]
         counts = df[col].value_counts()
 
-        charts.append({
-            "type": "pie",
-            "labels": counts.index.tolist(),
-            "values": counts.values.tolist(),
-            "title": f"Distribution of {col}"
-        })
+        if len(counts) < 10:
+            charts.append({
+                "type": "pie",
+                "labels": counts.index.tolist(),
+                "values": counts.values.tolist(),
+                "title": f"Distribution of {col}"
+            })
 
     return charts
 
 
-# 🧠 Insights ذكية
+# 🧠 Insights أقوى
 def generate_insights(df):
     insights = []
     numeric = df.select_dtypes(include=[np.number])
 
-    # المتوسط
     for col in numeric.columns:
         mean = df[col].mean()
-        insights.append(f"Average of {col} is {round(mean,2)}")
+        insights.append(f"{col}: avg={round(mean,2)}")
 
     # correlation
     if len(numeric.columns) >= 2:
@@ -115,18 +133,22 @@ def generate_insights(df):
             for c2 in corr.columns:
                 if c1 != c2:
                     val = corr.loc[c1, c2]
-                    if abs(val) > 0.6:
-                        insights.append(f"Strong relation between {c1} and {c2}")
+                    if abs(val) > 0.7:
+                        insights.append(f"{c1} ↔ {c2} strong relation")
 
     # outliers
     for col in numeric.columns:
         mean = df[col].mean()
         std = df[col].std()
 
-        outliers = df[(df[col] > mean + 2*std) | (df[col] < mean - 2*std)]
+        if std > 0:
+            outliers = df[
+                (df[col] > mean + 2*std) |
+                (df[col] < mean - 2*std)
+            ]
 
-        if len(outliers) > 0:
-            insights.append(f"{col} has unusual values")
+            if len(outliers) > 0:
+                insights.append(f"{col} has outliers")
 
     return insights
 
@@ -146,6 +168,7 @@ async def upload(file: UploadFile = File(...)):
         best = None
         size = 0
 
+        # 🔥 اختيار أفضل sheet
         for df in sheets.values():
             if df is not None:
                 s = df.shape[0] * df.shape[1]
