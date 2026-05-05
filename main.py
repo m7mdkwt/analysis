@@ -3,13 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
 import numpy as np
-from openai import OpenAI
-import os
 
 app = FastAPI()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
+# 🔓 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,41 +17,51 @@ app.add_middleware(
 
 @app.get("/")
 def home():
-    return {"message": "AI Smart Excel Analyzer 🚀"}
+    return {"message": "Smart Analyzer (No AI) 🚀"}
 
 
-# 🧹 تنظيف
+# 🧹 تنظيف ذكي قوي
 def clean_df(df):
     df = df.dropna(how="all")
 
-    # كشف header
-    for i in range(min(5, len(df))):
-        if df.iloc[i].notna().sum() > len(df.columns) / 2:
-            df.columns = df.iloc[i]
-            df = df[i+1:]
-            break
+    best_row = 0
+    max_valid = 0
 
-    df.columns = [str(c).replace("\n", " ").strip() for c in df.columns]
+    for i in range(min(10, len(df))):
+        count = df.iloc[i].notna().sum()
+        if count > max_valid:
+            max_valid = count
+            best_row = i
+
+    df.columns = df.iloc[best_row]
+    df = df[best_row + 1:]
+
+    df.columns = [
+        str(c).replace("\n", " ").strip()
+        for c in df.columns
+    ]
+
+    df = df.dropna(axis=1, how="all")
     df = df.fillna("")
 
     for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="ignore")
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 
 
 # 📊 اختيار الرسم الأفضل
 def choose_chart(df):
-    numeric = df.select_dtypes(include=[np.number])
-    text = df.select_dtypes(include=["object"])
-
     charts = []
+
+    numeric = df.select_dtypes(include=[np.number])
+    text = df.select_dtypes(exclude=[np.number])
 
     # 📈 Line (تواريخ)
     for col in df.columns:
-        try:
-            parsed = pd.to_datetime(df[col], errors="coerce")
-            if parsed.notna().sum() > len(df) * 0.5 and not numeric.empty:
+        parsed = pd.to_datetime(df[col], errors="coerce")
+        if parsed.notna().sum() > len(df) * 0.6:
+            if not numeric.empty:
                 num = numeric.columns[0]
                 charts.append({
                     "type": "line",
@@ -63,13 +70,12 @@ def choose_chart(df):
                     "title": f"{num} over time"
                 })
                 return charts
-        except:
-            pass
 
     # 📊 Bar
     if not text.empty and not numeric.empty:
         cat = text.columns[0]
-        num = numeric.columns[0]
+        variances = numeric.var()
+        num = variances.idxmax()
 
         grouped = df.groupby(cat)[num].mean().reset_index()
 
@@ -83,7 +89,6 @@ def choose_chart(df):
     # 📈 Scatter
     if len(numeric.columns) >= 2:
         c1, c2 = numeric.columns[:2]
-
         charts.append({
             "type": "scatter",
             "x": df[c1].tolist(),
@@ -96,49 +101,53 @@ def choose_chart(df):
         col = text.columns[0]
         counts = df[col].value_counts()
 
-        charts.append({
-            "type": "pie",
-            "labels": counts.index.tolist(),
-            "values": counts.values.tolist(),
-            "title": f"Distribution of {col}"
-        })
+        if len(counts) < 10:
+            charts.append({
+                "type": "pie",
+                "labels": counts.index.tolist(),
+                "values": counts.values.tolist(),
+                "title": f"Distribution of {col}"
+            })
 
     return charts
 
 
-# 🤖 AI تحليل
-def ai_analysis(df):
-    try:
-        sample = df.head(5).to_string()
+# 🧠 Insights
+def generate_insights(df):
+    insights = []
+    numeric = df.select_dtypes(include=[np.number])
 
-        prompt = f"""
-You are a data analyst.
+    for col in numeric.columns:
+        mean = df[col].mean()
+        insights.append(f"{col}: avg={round(mean,2)}")
 
-Analyze this dataset sample:
+    if len(numeric.columns) >= 2:
+        corr = numeric.corr()
 
-{sample}
+        for c1 in corr.columns:
+            for c2 in corr.columns:
+                if c1 != c2:
+                    val = corr.loc[c1, c2]
+                    if abs(val) > 0.7:
+                        insights.append(f"{c1} ↔ {c2} strong relation")
 
-Give:
-- One key insight
-- One relationship between columns
-- One recommendation
+    for col in numeric.columns:
+        mean = df[col].mean()
+        std = df[col].std()
 
-Keep it short.
-"""
+        if std > 0:
+            outliers = df[
+                (df[col] > mean + 2*std) |
+                (df[col] < mean - 2*std)
+            ]
 
-        res = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5
-        )
+            if len(outliers) > 0:
+                insights.append(f"{col} has outliers")
 
-        return res.choices[0].message.content
-
-    except Exception:
-        return "AI unavailable"
+    return insights
 
 
-# 📤 API
+# 📤 رفع وتحليل
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     try:
@@ -166,13 +175,13 @@ async def upload(file: UploadFile = File(...)):
         df = clean_df(best)
 
         charts = choose_chart(df)
-        ai_text = ai_analysis(df)
+        insights = generate_insights(df)
 
         return {
             "rows": len(df),
             "columns": list(df.columns),
             "charts": charts,
-            "ai_analysis": ai_text,
+            "insights": insights,
             "preview": df.head(10).to_dict(orient="records")
         }
 
