@@ -2,8 +2,6 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
-import os
-from openai import OpenAI
 
 app = FastAPI()
 
@@ -16,43 +14,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🤖 OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
 
 @app.get("/")
 def home():
     return {"message": "API is running 🚀"}
-
-
-# 🤖 AI تحليل
-def generate_ai_insights(df):
-    try:
-        sample = df.sample(min(len(df), 5)).to_string()
-
-        prompt = f"""
-لديك البيانات التالية:
-
-{sample}
-
-قم بإعطاء:
-- أهم ملاحظة
-- علاقة بين عمودين
-- توصية واحدة
-
-بالعربية وبشكل مختصر.
-"""
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5
-        )
-
-        return response.choices[0].message.content
-
-    except Exception as e:
-        return f"AI Error: {str(e)}"
 
 
 # 📊 Insights بدون AI
@@ -90,7 +55,6 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
-        # 🔍 Debug
         print("File received:", file.filename)
         print("Size:", len(contents))
 
@@ -130,19 +94,13 @@ async def upload_file(file: UploadFile = File(...)):
 
         insights = generate_insights(df)
 
-        # 🤖 AI (محمي)
-        try:
-            ai_text = "AI disabled"
-        except Exception:
-            ai_text = "AI temporarily unavailable"
-
         return {
             "info": info,
             "records": records,
             "numeric_columns": numeric_columns,
             "categorical_columns": categorical_columns,
             "insights": insights,
-            "ai_analysis": ai_text
+            "ai_analysis": "AI disabled for debugging"
         }
 
     except HTTPException as e:
